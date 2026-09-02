@@ -58,6 +58,14 @@ python3 scripts/qa_check.py cards.json
 Where `cards.json` is a list of `{"Name", "Copy", "CTA", "context"}` objects. It prints
 per-card measurements and exits non-zero on any violation.
 
+## The Notion connector
+
+The Routine fires a fresh session each day, and that session needs the Notion connector to
+read the Master log and write the cards. Connector grants are not inherited automatically
+by a scheduled Routine in this workspace, so the Notion connector has to be attached to the
+Routine itself in the claude.ai Routines UI. Without it the run will research fine and then
+have nowhere to save, which fails loudly rather than silently.
+
 ## Tuning
 
 - **Batch size** and **lane rotation** live in the Routine prompt, mirrored in
