@@ -60,11 +60,14 @@ per-card measurements and exits non-zero on any violation.
 
 ## The Notion connector
 
-The Routine fires a fresh session each day, and that session needs the Notion connector to
-read the Master log and write the cards. Connector grants are not inherited automatically
-by a scheduled Routine in this workspace, so the Notion connector has to be attached to the
-Routine itself in the claude.ai Routines UI. Without it the run will research fine and then
-have nowhere to save, which fails loudly rather than silently.
+The Routine fires a fresh session each day, and that session needs Notion to read the
+Master log and write the cards. The Routine itself stores no explicit connector grant,
+because this workspace does not allow attaching one through the API. That turned out not to
+matter: a probe session spawned fresh in the same environment loaded and called Notion
+tools successfully, so the environment supplies them.
+
+If a daily run ever reports that it cannot reach Notion, that is the thing to check first,
+and the fix is to attach the Notion connector to the Routine in the claude.ai Routines UI.
 
 ## Tuning
 
