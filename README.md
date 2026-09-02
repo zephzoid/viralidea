@@ -11,9 +11,19 @@ save.
 
 ## How it runs
 
-A Claude Routine fires a fresh session on a daily schedule. That session has no memory of
-yesterday, so the whole spec travels in the prompt itself. It ends with 10 new cards in
-Notion and a written summary of what it wrote, what it killed and why.
+Two modes share one pipeline.
+
+**Seed-driven, on demand (primary).** Paste a headline that already worked into a Claude
+Project carrying `docs/project-instructions.md`, and it returns 25 to 50 fresh, verified
+cards built on the same nerve, written straight into the Notion Ideas tab. This is the mode
+in use.
+
+**Autonomous daily (paused).** A Claude Routine that fires a fresh session on a schedule,
+picks its own lane by weekday, and writes 10 cards. Its schedule is currently disabled; the
+Routine still exists and can be re-enabled or fired by hand. Its prompt lives in
+`docs/routine-prompt.md`.
+
+Both modes use the same gates, the same ledger, and the same QA rules.
 
 ## The loop
 
@@ -32,7 +42,8 @@ keeps the batches from drifting.
 | File | What it is |
 | --- | --- |
 | `docs/daily-idea-engine.md` | The full spec: target, dedupe protocol, headline, Copy, CTA and QA rules |
-| `docs/routine-prompt.md` | The exact self-contained prompt installed in the Routine |
+| `docs/project-instructions.md` | Seed-driven project instructions, the mode in use: paste a headline, get 25 to 50 cards |
+| `docs/routine-prompt.md` | The self-contained prompt installed in the paused daily Routine |
 | `scripts/qa_check.py` | The formatting QA gate, run over the batch before anything is saved |
 | `docs/run-log.md` | What each run shipped, what the dedupe gate killed, and which lanes are worked out |
 
