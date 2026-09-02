@@ -59,15 +59,22 @@ The Master table is the log of every idea the brand has ever had, used or unused
 runs to thousands of rows. The first run proved how mined it is: 16 of 26 researched
 candidates turned out to already be in there.
 
-Two filters run in front of the research, in this order, cheapest first.
+Three gates run in front of the research, in this order, cheapest first.
 
-**The ledger** is a Notion page the engine reads at the start of every run and appends to at
-the end. It holds a census of which lanes are saturated, a list of burned subjects, and
+**Gate A, within the batch**, collapses candidates that tell the same story as each other.
+On a 45-card run the model writes 120-plus candidate lines in one sitting and some of them
+converge without it noticing. Free, and the gate most often forgotten.
+
+**Gate B, the ledger**, is a Notion page the engine reads at the start of every run and
+appends to at the end. It holds a census of which lanes are saturated, a list of burned subjects, and
 every subject the engine has shipped. It matches on the *story*, so it catches a collision
 even when the wording shares nothing, which a text search never will. It also replaces the
 old habit of pulling 435 raw headlines a day just to re-derive what had been covered.
 
-**The `LIKE` backstop** covers the thousands of older rows that predate the ledger. Two or
+It also carries a Seeds already run log, so handing the engine the same seed headline twice
+does not produce the same batch twice.
+
+**Gate C, the `LIKE` backstop**, covers the thousands of older rows that predate the ledger. Two or
 three genuinely distinctive tokens per candidate — a surname, an organization, a statute
 number, an unusual crop — batched into one query with a `LIMIT`. Never a bare state or
 country: on the first run `%michigan%` matched about a hundred rows, truncated, and settled
@@ -77,8 +84,9 @@ In both, same event with the same subject and mechanism is a kill. The same topi
 different place, actor, mechanism, or a documented new development is a fresh angle and
 ships.
 
-Only what survives both gates gets researched, capped at roughly two searches per card and
-25 for the run. Candidate lines are nearly free; verified stories are expensive. Generating
+If the ledger cannot be read, the run stops rather than proceeding on the backstop alone.
+
+Only what survives all three gates gets researched, capped at roughly two searches per card. Candidate lines are nearly free; verified stories are expensive. Generating
 40 candidates cold and throwing most away costs far less than verifying 26 and discarding
 16 of them.
 

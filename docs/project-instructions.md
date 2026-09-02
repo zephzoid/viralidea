@@ -56,6 +56,51 @@ Only create pages. Never edit an existing row.
 
 ---
 
+## Never repeat yourself
+
+This is the part of the job that is easiest to fail at and hardest to notice. The Master table
+holds thousands of rows, so almost every obvious idea has already been used. On the first run
+of this pipeline, 16 of 26 researched candidates turned out to already be in there. Assume the
+same rate.
+
+**No card ships until it has passed all three gates.** They run cheapest first, before any
+research, and they are not optional or skippable.
+
+| Gate | Catches | Cost |
+| --- | --- | --- |
+| A. Within this batch | Two of your own candidates telling the same story | Free |
+| B. The ledger | Anything this engine has shipped or already killed, matched on the story rather than the wording | One page read |
+| C. The Master table | The thousands of older rows the ledger never saw, matched on distinctive text | One or two queries |
+
+Each gate catches what the others cannot. Gate B is the only one that catches a paraphrase,
+since a text search for `%rainwater%` sails straight past a headline worded "catching rain on
+his own property". Gate C is the only one that covers the years of rows that predate the
+ledger. Dropping either leaves a hole.
+
+**If the ledger cannot be read, stop and say so.** Do not proceed on Gate C alone and do not
+quietly skip a gate. A run without the ledger will repeat past work, which is worse than no
+run at all.
+
+### Same seed, later run
+
+If I hand you a seed you have been given before, or one close to it, the batch it produced
+last time is in the ledger under Seeds already run. Read that entry first, treat every subject
+under it as burned, and go find different stories in the same vein. A repeated seed must never
+produce a repeated batch. If the vein is genuinely exhausted, say so and give me fewer cards
+rather than recycled ones.
+
+### The rule the gates apply
+
+- **Same event, same subject, same mechanism → kill it.** Rewording a headline is not a new
+  idea, and neither is a new hook on a story we have run.
+- **Same topic, different story → keep it.** A different place, a different actor, a different
+  mechanism, or a documented new development in a story the brand covered before is a fresh
+  angle. Kalamazoo's garden fight is not Miami Shores' garden fight.
+- **A hit that was archived → treat that subject as burned**, unless the new angle is clearly
+  the thing the archived one was missing, and say so in `context`.
+
+---
+
 ## Order of work
 
 The order matters more than anything else in this document. The cheap filters run before the
@@ -65,8 +110,8 @@ away, which on a batch this size is a large amount of wasted work for nothing.
 1. Read the seed
 2. Load memory, cheaply
 3. Generate cold, no searching
-4. Gate against the ledger
-5. Gate against the Master table
+4. Gate A and B: against this batch, then against the ledger
+5. Gate C: against the Master table
 6. Research only the survivors
 7. Write hook, body, CTA, context
 8. QA gate, with code
@@ -98,6 +143,10 @@ Name, in one or two lines before you start:
 Weight the batch toward that vein. Include a handful from other veins so I have range to pick
 from, but the batch should clearly answer the seed I gave you.
 
+Then check the seed itself against Seeds already run in the ledger. If this seed or a close
+relative has been run before, say so, and treat everything it produced as burned before you
+generate anything.
+
 ## Step 2 — Load memory, cheaply
 
 Four reads, no more. Do not pull hundreds of raw headlines.
@@ -128,16 +177,30 @@ of rows and most obvious American candidates will collide:
 - News from the last two weeks, which by definition cannot be in the table yet
 - The lanes the ledger marks Open over the ones it marks Saturated
 
-## Step 4 — Gate against the ledger
+## Step 4 — Gate A and B, against this batch and the ledger
 
-Drop every candidate whose subject appears in the ledger's Burned Subjects or Covered
-Subjects. Match on the story, not the wording: the same event told differently is the same
-event. Free filter, so be aggressive.
+**Gate A, within the batch.** You have just written 120 to 150 lines in one sitting, and some
+of them are the same story reached by different routes: two front-yard garden fights in the
+same state, two versions of one seed law, a person and the organization they founded. Read
+your own list and collapse them. Keep the strongest telling of each subject and delete the
+rest. This costs nothing and it is the gate most often forgotten.
 
-## Step 5 — Gate against the Master table
+**Gate B, the ledger.** Drop every candidate whose subject appears under Burned Subjects,
+Covered Subjects, or a matching entry under Seeds already run. Match on the story, not the
+wording. Also weigh the saturated-lane census: a candidate in a lane the census marks
+Saturated needs a genuinely new event, actor or mechanism, not a new angle on a fact the
+brand has already used.
+
+Be aggressive here. Both gates are free, and every candidate they kill is one you do not pay
+to research.
+
+## Step 5 — Gate C, against the Master table
 
 The ledger only knows what has passed through it. The Master table holds thousands of older
-rows, so a text backstop still matters.
+rows from before it existed, so a text backstop is still required. Run this on every surviving
+candidate, with no exceptions for ones that feel obviously fresh: on the first run it killed
+Sri Lanka's overnight organic ban and the Gandhi salt march, both of which felt new and both
+of which were already in the table.
 
 For each surviving candidate pick two or three genuinely distinctive tokens: a person's
 surname, an organization, a statute number, an unusual crop or organism, a small place name.
@@ -153,13 +216,20 @@ WHERE lower("Name") LIKE '%tukirin%' OR lower("Name") LIKE '%kokopelli%'
 LIMIT 25
 ```
 
-Rules:
+Apply the rule from the Never repeat yourself section to every hit.
 
-- **Same event, same subject, same mechanism → kill it.** Rewording a headline is not a new idea.
-- **Same topic, different story → keep it.** A different place, actor, mechanism, or a
-  documented new development is a fresh angle.
-- **A hit that was archived → treat that subject as burned**, unless the new angle is clearly
-  what the archived one was missing, and say so in `context`.
+Worked example. Candidate: "Kokopelli, the French seed association sued for selling
+uncatalogued heirloom varieties." Tokens: `%kokopelli%`, `%catalogue%`, `%heirloom seed%`.
+The only hit is "Some heirloom seeds are now illegal to save and replant because they got
+patented", which is a patent story rather than the EU catalogue mechanism. Different
+mechanism, so it survives, and the `context` field records that reasoning.
+
+Bad tokens to avoid, with what they actually did: `%michigan%` returned about a hundred rows
+and truncated; `%raw milk%` returned more than fifty. Neither settled anything, and both cost
+a lot to read. If a token would match a whole lane rather than a story, it is the wrong token.
+
+Log every kill with the row it collided with. Those go into the ledger in Step 10 so no future
+run spends anything rediscovering them.
 
 ## Step 6 — Research only the survivors
 
@@ -475,15 +545,20 @@ retry once, then report the failure with that card's hook rather than moving on 
 
 This is what keeps the next run cheap and non-repetitive. Do not skip it.
 
+A run that ships 45 cards and does not record them has taught the next run nothing, and the
+next run will hand you overlapping ideas. Treat this step as part of the deliverable.
+
 `notion-update-page` on the ledger page with `command: "insert_content"` and
-`position: {"type": "end"}`, appending short lines:
+`position: {"type": "end"}`. The ledger has four sections. Append short lines under the right
+one, newest last:
 
-- Per shipped card, under Covered Subjects: `- YYYY-MM-DD, subject and place, mechanism`
-- Per candidate killed in Step 5, under Burned Subjects: `- subject, already in Master`
-- Per candidate that failed verification: `- subject, did not verify, what was wrong`
+- **Seeds already run** — one entry per run: `- YYYY-MM-DD, seed: "<the headline I gave you>", lane, N cards shipped`, then the shipped subjects indented beneath it. This is what stops a repeated seed producing a repeated batch.
+- **Covered subjects** — per shipped card: `- YYYY-MM-DD, subject and place, mechanism`
+- **Burned subjects** — per candidate killed at Gate C: `- subject, already in Master as "<colliding row>"`, and per candidate that failed verification: `- subject, did not verify, what was wrong`
+- **Saturated territory** — refresh the census if it is more than about a month old
 
-If the saturated-lane census in the ledger is more than about a month old, refresh it while
-you are there.
+Keep every line to one line. The ledger is read in full at the start of each run, so it earns
+its size back only if it stays terse.
 
 ## Step 11 — Summary
 
@@ -491,7 +566,8 @@ Close every run with:
 
 - The seed I gave you and the lane you read out of it.
 - Cards written: hook and Notion link, one line each.
-- How many candidates died at each gate.
+- How many candidates died at each gate, named as A within-batch, B ledger, C Master table.
+- Confirmation that the ledger was updated, including the Seeds already run entry.
 - Candidates killed at verification, with what was found and what was wrong.
 - Any claim deliberately left out of a body for lack of confirmation.
 - Anything worth a human double-check: shaky sourcing, a procedural status that could still
