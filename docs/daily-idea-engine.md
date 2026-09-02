@@ -20,6 +20,7 @@ the feedback signal for the next run.
 | Data source | `collection://cf22ea35-39fb-829f-9432-07370ec52bcb` |
 | Ideas view (destination) | `https://app.notion.com/p/1462ea3539fb837abdeb811a692b0ea9?v=3cb2ea3539fb809b9264000c5e04a0e5` |
 | Master view (dedupe log) | `https://app.notion.com/p/1462ea3539fb837abdeb811a692b0ea9?v=9e92ea3539fb83569d7008616bdb00f0` |
+| Ledger page (run memory) | `https://app.notion.com/p/3cf2ea3539fb81cd8964e820a19b840f` |
 | Batch size | 10 cards per run |
 
 The Ideas view is the Master table filtered to `Date` is empty **and** `File` is empty
@@ -48,46 +49,46 @@ Never edit an existing row. This engine only creates.
 
 ---
 
-## Step 1 — Load the dedupe corpus
+## Step 1 — Load memory, cheaply
 
-The Master table holds thousands of rows, so it cannot be read whole on every run. Use
-three cheap reads plus a per-candidate check.
+The Master table holds thousands of rows and cannot be read whole on every run. Earlier
+versions of this spec pulled 435 raw headlines a day to re-derive what had been covered.
+The ledger page replaces that. Four reads, no more.
 
-**1a. Recent work** (what the brand has been on lately):
+**1a. The ledger.** `notion-fetch` the ledger page. It carries the saturated-lane census,
+the burned subjects, and every subject this engine has shipped. This is the primary dedupe
+memory, and unlike a text search it matches on the story rather than the wording.
+
+**1b. New rows in the last three days**, which catches anything a human added and any
+verdict they passed:
+
+```sql
+SELECT "Name", "Archive" FROM "collection://cf22ea35-39fb-829f-9432-07370ec52bcb"
+WHERE date(createdTime) >= date('now','-3 days') LIMIT 60
+```
+
+**1c. Recent rejections**, the feedback signal:
 
 ```sql
 SELECT "Name" FROM "collection://cf22ea35-39fb-829f-9432-07370ec52bcb"
-ORDER BY createdTime DESC LIMIT 250
+WHERE "Archive" = '__YES__' AND date(createdTime) >= date('now','-45 days') LIMIT 30
 ```
 
-**1b. Rejected work** (what a human threw away):
-
-```sql
-SELECT "Name" FROM "collection://cf22ea35-39fb-829f-9432-07370ec52bcb"
-WHERE "Archive" = '__YES__' ORDER BY createdTime DESC LIMIT 120
-```
-
-**1c. Recent CTAs** (so the Localize line does not repeat):
+**1d. Recent CTAs**, so the Localize line does not repeat:
 
 ```sql
 SELECT "CTA" FROM "collection://cf22ea35-39fb-829f-9432-07370ec52bcb"
-WHERE "CTA" IS NOT NULL AND "CTA" <> '' ORDER BY createdTime DESC LIMIT 25
+WHERE "CTA" IS NOT NULL AND "CTA" <> '' ORDER BY createdTime DESC LIMIT 15
 ```
 
-**1d. Seeds** (the phrasing patterns that actually worked):
+Anything archived in 1c that came from a recent run of this engine is a direct verdict on
+its own work. Read it as such.
 
-```sql
-SELECT "Name" FROM "collection://cf22ea35-39fb-829f-9432-07370ec52bcb"
-WHERE "Performance" = 'BANG' ORDER BY "date:Date:start" DESC LIMIT 40
-```
-
-BANG headlines are the pattern to match: their topic lane, phrasing rhythm and emotional
-register. Read what made them land. Do not reuse their stories.
-
-Note on archived rows: a lot of the old archive is raw brainstorm stubs from before this
-pipeline existed, not considered rejections. Weight recently archived rows far more heavily
-than old ones, and treat anything archived within days of a run of this engine as a direct
-verdict on that run.
+Occasionally, when the ledger looks stale, also pull the BANG headlines
+(`WHERE "Performance" = 'BANG' ORDER BY "date:Date:start" DESC LIMIT 20`) to re-calibrate
+on the phrasing that actually landed. Skip it on ordinary days. A lot of the old archive is
+raw brainstorm stubs from before this pipeline existed rather than considered rejections,
+so weight recent archives far more heavily than old ones.
 
 ---
 
@@ -115,35 +116,54 @@ Aim for a batch that ranges. Never ship ten cards from one lane.
 
 ---
 
-## Step 3 — Generate wide, then cut
+## Step 3 — Generate cold, with no searching at all
 
-Draft roughly 30 candidate stories against today's lanes. Expect to throw most away. A card
-survives only if all three hold:
+Write out about 40 candidate story ideas from the model's own knowledge. One line each: the
+subject, the place, roughly when, and the reversal. **No web search in this step.**
 
-1. **Real.** A specific event, place, law, program or person that actually happened or
-   exists, confirmed by research, not recalled from memory.
-2. **A genuine reversal or shock.** Something surprising happened and there is a
-   consequence or twist the reader has to keep reading to resolve. Topical is not enough.
-3. **Fresh for Localize.** It clears the dedupe gate in Step 4.
+This ordering is the whole efficiency design. The first run of this engine researched and
+verified candidates and then discovered that 16 of 26 were already in the table, which
+means most of the research spend bought nothing. Candidate lines are nearly free; verified
+stories are expensive. Generate cheap, filter hard, then research only what survives.
 
-A dropped idea is always better than an invented one. Never soften an unverifiable story
-into a hypothetical.
+Bias hard toward where fresh material actually lives, because the table is deeply mined and
+most obvious American candidates will collide:
+
+- International stories over American ones
+- Anything before 1970 over anything recent
+- News from the last two weeks, which by definition cannot be in the table yet
+- The lanes the ledger marks Open over the ones it marks Saturated
 
 ---
 
-## Step 4 — Dedupe gate (every candidate, no exceptions)
+## Step 4 — Gate against the ledger (free)
 
-For each surviving candidate, pull two to four distinctive tokens from the story: the
-place, the person, the company, the statute number, the crop, the organism. Then query the
-whole Master table for each:
+Drop every candidate whose subject appears in the ledger's Burned Subjects or Covered
+Subjects. Match on the story, not the wording: the same event told differently is the same
+event. This filter costs nothing beyond the read already done in Step 1, so be aggressive.
+Expect to lose about a third of the candidates here.
+
+---
+
+## Step 5 — Gate against the Master table (cheap)
+
+The ledger only knows what has passed through it. The Master table holds thousands of older
+rows, so a text backstop still matters for those.
+
+For each remaining candidate pick two or three genuinely distinctive tokens: a person's
+surname, an organization, a statute number, an unusual crop or organism, a small place
+name. **Never a bare US state, country, or common word.** On the first run, `%michigan%`
+returned about a hundred rows, hit the truncation limit, and settled nothing. Broad tokens
+are both useless and expensive.
+
+Batch every candidate's tokens into one or two queries and cap the result:
 
 ```sql
-SELECT "Name", "date:Date:start", "Performance", "Archive"
-FROM "collection://cf22ea35-39fb-829f-9432-07370ec52bcb"
-WHERE lower("Name") LIKE lower(?)
+SELECT "Name", "Archive" FROM "collection://cf22ea35-39fb-829f-9432-07370ec52bcb"
+WHERE lower("Name") LIKE '%tukirin%' OR lower("Name") LIKE '%kokopelli%'
+   OR lower("Name") LIKE '%nganjuk%'
+LIMIT 25
 ```
-
-with params like `%kalamazoo%`, `%breadfruit%`, `%SB 1035%`.
 
 Read the hits and rule:
 
@@ -155,12 +175,23 @@ Read the hits and rule:
 - **A hit that was archived → treat that subject as burned** unless the new angle is
   clearly the thing the archived one was missing, and say so in `context`.
 
-Record every LIKE query and its verdict for the run summary. If a candidate dies at this
-gate, replace it from the reserve pool rather than shipping a thin batch.
+---
+
+## Step 6 — Research only the survivors
+
+Now, and only now, use web search. Work down the survivor list until 10 fully verify, then
+stop searching. Budget roughly two searches per card and about 25 for the whole run. If a
+candidate does not verify in two searches, drop it and take the next survivor rather than
+chasing it.
+
+A card ships only if it is a real, specific event, place, law, program or person, confirmed
+by research rather than recalled from memory, and carries a genuine reversal or shock
+rather than merely being topical. A dropped idea is always better than an invented one.
+Never soften an unverifiable story into a hypothetical.
 
 ---
 
-## Step 5 — Write the headline
+## Step 7 — Write the headline
 
 Shock setup plus a curiosity loop. Common shapes:
 
@@ -179,7 +210,7 @@ it first.
 
 ---
 
-## Step 6 — Write the Copy
+## Step 8 — Write the Copy
 
 The Copy is the middle of the carousel. Slide 1 is the headline, the last slide is the CTA,
 and these sections are everything between. Write them as a short news brief that walks the
@@ -260,7 +291,7 @@ that rating is about the headline, not the copy. This spec is the only style aut
 
 ---
 
-## Step 7 — Write the CTA
+## Step 9 — Write the CTA
 
 The final slide. **Two small thoughts, on two lines, blank line between them.** Nothing
 else. It relates to the post but never explains the post.
@@ -352,10 +383,11 @@ Football pays the bills for a few years, land and cattle pay a family for genera
 
 ---
 
-## Step 8 — Write the context field
+## Step 10 — Write the context field
 
 `context` is the receipts, written for a human who wants to spot-check before scripting.
-Plain text, a few lines:
+Keep it to about 80 words. Notion echoes the whole payload back on write, so long
+context fields are paid for twice. Plain text, four short parts:
 
 - The verified spine of the story: who, where, when, and the fact that makes it true.
 - Source names, and links where available. Reputable news organizations; court opinions,
@@ -370,7 +402,7 @@ Plain text, a few lines:
 
 ---
 
-## Step 9 — QA gate, run on every card before saving
+## Step 11 — QA gate, run on every card before saving
 
 **Factual.** Every sentence supported by a credible source. No claim exceeds its source.
 Dates, numbers, company names, legal status and current affiliations correct. No association
@@ -396,7 +428,7 @@ enough that it could not be pasted onto a different story unchanged.
 
 ---
 
-## Step 10 — Write into Notion
+## Step 12 — Write into Notion
 
 `notion-create-pages` against
 `data_source_id: cf22ea35-39fb-829f-9432-07370ec52bcb`, setting only `Name`, `Copy`, `CTA`
@@ -408,7 +440,26 @@ moving on silently.
 
 ---
 
-## Step 11 — Summary
+## Step 13 — Update the ledger
+
+This is what makes tomorrow's run cheap. Do not skip it.
+
+`notion-update-page` on the ledger page with `command: "insert_content"` and
+`position: {"type": "end"}`, appending:
+
+- One line per shipped card under Covered Subjects: `- YYYY-MM-DD, subject and place, mechanism`
+- One line per candidate killed in Step 5 under Burned Subjects: `- subject, already in Master`
+- One line per candidate that failed verification: `- subject, did not verify, what was wrong`
+
+Keep each line short. If the census in the ledger is more than about a month old, refresh it
+while you are there.
+
+A run that skips this step still produces good cards, but it hands the next run no memory
+and the cost savings evaporate.
+
+---
+
+## Step 14 — Summary
 
 Close every run with:
 
@@ -423,7 +474,7 @@ Close every run with:
 
 ## Tuning
 
-- **Batch size** — change the number in Step 10 of the routine prompt.
+- **Batch size** — change the number in the Target block of the routine prompt.
 - **Lanes** — edit the weekday rotation in Step 2.
 - **Schedule** — the routine's cron expression, stored in UTC.
 - **Feedback** — archive the cards that miss. The next run reads the archive and steers off

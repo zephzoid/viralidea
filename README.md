@@ -34,18 +34,64 @@ keeps the batches from drifting.
 | `docs/daily-idea-engine.md` | The full spec: target, dedupe protocol, headline, Copy, CTA and QA rules |
 | `docs/routine-prompt.md` | The exact self-contained prompt installed in the Routine |
 | `scripts/qa_check.py` | The formatting QA gate, run over the batch before anything is saved |
+| `docs/run-log.md` | What each run shipped, what the dedupe gate killed, and which lanes are worked out |
 
-## Dedupe
+The engine's run memory is not in the repo, because a scheduled session clones the default
+branch and would not see it. It lives in Notion as the
+[Localize Idea Ledger](https://app.notion.com/p/3cf2ea3539fb81cd8964e820a19b840f), which is
+also editable by hand: adding a line under Burned Subjects keeps the engine off that story
+for good.
 
-The Master table is the log of every idea the brand has ever had, used or unused, and it is
-in the thousands of rows. Reading it whole on every run is not practical, so the engine
-uses four slice queries for orientation (recent work, archived work, recent CTAs, and the
-BANG headlines as pattern seeds) and then a targeted `LIKE` query per candidate on that
-story's distinctive tokens: the place, the person, the company, the statute number, the
-crop.
+## Dedupe, and why it is also the cost design
 
-Same event, same subject, same mechanism is a kill. The same topic with a different place,
-actor, mechanism, or a documented new development is a fresh angle and ships.
+The Master table is the log of every idea the brand has ever had, used or unused, and it
+runs to thousands of rows. The first run proved how mined it is: 16 of 26 researched
+candidates turned out to already be in there.
+
+Two filters run in front of the research, in this order, cheapest first.
+
+**The ledger** is a Notion page the engine reads at the start of every run and appends to at
+the end. It holds a census of which lanes are saturated, a list of burned subjects, and
+every subject the engine has shipped. It matches on the *story*, so it catches a collision
+even when the wording shares nothing, which a text search never will. It also replaces the
+old habit of pulling 435 raw headlines a day just to re-derive what had been covered.
+
+**The `LIKE` backstop** covers the thousands of older rows that predate the ledger. Two or
+three genuinely distinctive tokens per candidate — a surname, an organization, a statute
+number, an unusual crop — batched into one query with a `LIMIT`. Never a bare state or
+country: on the first run `%michigan%` matched about a hundred rows, truncated, and settled
+nothing.
+
+In both, same event with the same subject and mechanism is a kill. The same topic with a
+different place, actor, mechanism, or a documented new development is a fresh angle and
+ships.
+
+Only what survives both gates gets researched, capped at roughly two searches per card and
+25 for the run. Candidate lines are nearly free; verified stories are expensive. Generating
+40 candidates cold and throwing most away costs far less than verifying 26 and discarding
+16 of them.
+
+## Keeping usage down
+
+The levers, in rough order of how much they save:
+
+1. **Never research before the gates.** This is the whole design. Reordering it is the one
+   change that would quietly triple the cost of a run.
+2. **Keep the ledger current.** Step 13 of the routine appends to it. A run that skips that
+   step still ships good cards but leaves the next run with no memory.
+3. **Narrow dedupe tokens, always with a `LIMIT`.** Broad tokens cost a lot to read and
+   settle nothing.
+4. **Short `context` fields**, about 80 words. Notion echoes the full payload back on write,
+   so long ones are paid for twice.
+5. **Archive the misses.** It costs one checkbox and it is the only signal that stops the
+   engine spending research on a direction you do not want.
+
+The model is a further lever and is deliberately left alone: the Routine runs on whatever it
+was created with, and changing it is a judgment call about quality, not something to change
+silently. Most of a run is searching, verifying and writing to a strict format, which a
+smaller model handles well; headline judgment is the part that rewards the larger one. The
+honest way to decide is to run a week on each and compare how many cards get assigned
+versus archived.
 
 ## QA gate
 
